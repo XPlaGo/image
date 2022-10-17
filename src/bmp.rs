@@ -1,5 +1,5 @@
 use std::io::prelude::*;
-use std::{mem, slice};
+use std::{mem, slice, io::IoSlice};
 
 pub struct BMP {
     bit_map_file_header: BitMapFileHeader,
@@ -39,12 +39,13 @@ impl BMP {
 
 impl BMP {
     pub fn write_to_file(&self, file: &mut std::fs::File) {
+        let mut file = std::io::BufWriter::new(file);
         println!("start to write file");
-        self.bit_map_file_header.write_to_file(file);
-        self.bit_map_core_header.write_to_file(file);
-        self.color_table.write_to_file(file);
-        self.bit_map_array.write_to_file(file);
-        println!("all right")
+        self.bit_map_file_header.write_to_file(&mut file);
+        self.bit_map_core_header.write_to_file(&mut file);
+        self.color_table.write_to_file(&mut file);
+        self.bit_map_array.write_to_file(&mut file);
+        println!("all right");
     }
 }
 
@@ -69,14 +70,22 @@ impl BitMapFileHeader {
 }
 
 impl BitMapFileHeader {
-    fn write_to_file(&self, file: &mut std::fs::File) {
+    fn write_to_file(&self, file: &mut std::io::BufWriter<&mut std::fs::File>) {
         println!("start to file header");
         print!("file with size: {} ", self._size);
-        file.write_all(&self._type.to_le_bytes()).unwrap();
-        file.write_all(&self._size.to_le_bytes()).unwrap();
-        file.write_all(&self._reserved1.to_le_bytes()).unwrap();
-        file.write_all(&self._reserved2.to_le_bytes()).unwrap();
-        file.write_all(&self._offsetbits.to_le_bytes()).unwrap();
+        let a1 = self._type.to_le_bytes();
+        let a2 = self._size.to_le_bytes();
+        let a3 = self._reserved1.to_le_bytes();
+        let a4 = self._reserved2.to_le_bytes();
+        let a5 = self._offsetbits.to_le_bytes();
+        let a = [
+            IoSlice::new(&a1),
+            IoSlice::new(&a2),
+            IoSlice::new(&a3),
+            IoSlice::new(&a4),
+            IoSlice::new(&a5)
+        ];
+        file.write_vectored(&a).unwrap();
     }
 }
 
@@ -101,16 +110,15 @@ impl BitMapCoreHeader {
 }
 
 impl BitMapCoreHeader {
-    fn write_to_file(&self, file: &mut std::fs::File) {
+    fn write_to_file(&self, file: &mut std::io::BufWriter<&mut std::fs::File>) {
         println!("start to core header");
-        file.write_all(to_u8(&[self._size])).unwrap();
-        file.write_all(to_u8(&[
-            self._width,
-            self._height,
-            self._planes,
-            self._bitcount,
-        ]))
-        .unwrap();
+        file.write_vectored(&[
+            IoSlice::new(&self._size.to_le_bytes()),
+            IoSlice::new(&self._width.to_le_bytes()),
+            IoSlice::new(&self._height.to_le_bytes()),
+            IoSlice::new(&self._planes.to_le_bytes()),
+            IoSlice::new(&self._bitcount.to_le_bytes()),
+            ]).unwrap();
     }
 }
 
@@ -133,10 +141,8 @@ impl RGBTRIPLE {
 }
 
 impl RGBTRIPLE {
-    fn write_to_file(&self, file: &mut std::fs::File) {
-        file.write_all(&self.rgbtBlue.to_le_bytes()).unwrap();
-        file.write_all(&self.rgbtGreen.to_le_bytes()).unwrap();
-        file.write_all(&self.rgbtRed.to_le_bytes()).unwrap();
+    fn write_to_file(&self, file: &mut std::io::BufWriter<&mut std::fs::File>) {
+        file.write_vectored(&[IoSlice::new(&[self.rgbtBlue, self.rgbtGreen, self.rgbtRed])]).unwrap();
     }
 }
 
@@ -169,7 +175,7 @@ impl ColorTable {
 }
 
 impl ColorTable {
-    fn write_to_file(&self, file: &mut std::fs::File) {
+    fn write_to_file(&self, file: &mut std::io::BufWriter<&mut std::fs::File>) {
         println!("start to color table");
         self.table.iter().for_each(|rgb| rgb.write_to_file(file));
     }
@@ -186,10 +192,10 @@ impl BitMapArray {
 }
 
 impl BitMapArray {
-    fn write_to_file(&self, file: &mut std::fs::File) {
+    fn write_to_file(&self, file: &mut std::io::BufWriter<&mut std::fs::File>) {
         println!("start to map array");
         for row in &self.buf {
-            file.write_all(&row[..]);
+            file.write_vectored(&[IoSlice::new(&row[..])]).unwrap();
         }
     }
 }
